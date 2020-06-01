@@ -1,18 +1,17 @@
 use std::env;
 use miniloc::{
-    error as loc_error,
     core,
-    config as loc_config
+    config
 };
 
+fn main() -> core::Result<()>{
+    let config = config::Config::new(env::args())?;
 
-fn main() -> Result<(), loc_error::LocError>{
-    let args: Vec<String> = env::args().collect();
-    let config = loc_config::Config::new(&args)?;
+    let ret = core::calc_line_number(config)?;
 
-    let lines = core::calc_line_number(config)?;
-
-    println!("{}", lines);
+    for lines in ret.iter() {
+        println!("\n{}:\n{}", lines.0, lines.1);
+    }
 
     Ok(())
 }

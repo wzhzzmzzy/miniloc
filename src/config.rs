@@ -1,5 +1,6 @@
 use crate::{
-    core
+    core,
+    error
 };
 
 pub struct Config {
@@ -9,14 +10,18 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(args: &Vec<String>) -> core::Result<Config> {
+    pub fn new(mut args: std::env::Args) -> core::Result<Config> {
+        args.next();
+
         let mut config = Config {
             filename: String::new(),
             ignore_file: String::new(),
             ignore_list: Vec::new()
         };
 
-        let filename = args[1].clone();
+        let filename = args.next().ok_or(
+            error::Error::NoneError(String::from("No filename in params"))
+        )?;
 
         config.filename = filename;
         Ok(config)

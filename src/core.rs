@@ -1,13 +1,13 @@
-use std::io::{
-    Read
+use std::{
+    io::Read,
+    collections::HashMap,
+    fs,
+    fmt
 };
-use std::fs;
-use std::fmt;
 
 use crate::{
     error,
-    config,
-    core
+    config
 };
 
 pub type Result<T> = std::result::Result<T, error::Error>;
@@ -16,28 +16,49 @@ pub struct LineStatistic {
     blank: u32,
     code: u32,
     comment: u32,
-    files: u32
+    files: u32,
+}
+
+impl LineStatistic {
+    fn new() -> LineStatistic {
+        LineStatistic {
+            blank: 0,
+            code: 0,
+            comment: 0,
+            files: 0,
+        }
+    }
 }
 
 impl fmt::Display for LineStatistic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "blank: {}\ncomment: {}\ncode: {}", self.blank, self.comment, self.code)
+        write!(f, "Read {} files\nblank: {}\ncomment: {}\ncode: {}", self.files, self.blank, self.comment, self.code)
     }
 }
 
-fn walk_dir(dirname: &String, ret: &mut LineStatistic) -> Result<u32> {
-    let mut count: u32 = 0;
-    for entry in fs::read_dir(dirname)? {
-        let path = entry?.path();
-        let raw_path = path.to_str().ok_or(error::Error::NoneError)?;
-        if path.is_dir() {
-            count += walk_dir(&raw_path.to_string(), ret)?;
-        } else {
-            read_file(&raw_path.to_string(), ret)?;
-            count += 1;
+fn get_language(path: &String) -> Result<String> {
+    let mut sp = path.split(".");
+    let mut suffix = String::new();
+    loop {
+        suffix = match sp.next() {
+            Some(v) => v.to_string(),
+            None => break
         }
     }
-    Ok(count)
+    let judge_suffix = |arr: Vec<&str>| {
+        arr.contains(&suffix.as_str())
+    };
+    if judge_suffix(vec!["rs"]) {
+        Ok(String::from("Rust"))
+    } else if judge_suffix(vec!["py"]) {
+        Ok(String::from("Python"))
+    } else if judge_suffix(vec!["js", "jsx", "node"]) {
+        Ok(String::from("JavaScript"))
+    } else if judge_suffix(vec!["ts"]) {
+        Ok(String::from("TypeScript"))
+    } else {
+        Ok(String::from("Plain Text"))
+    }
 }
 
 fn read_file(filename: &String, ret: &mut LineStatistic) -> Result<()> {
@@ -57,25 +78,41 @@ fn read_file(filename: &String, ret: &mut LineStatistic) -> Result<()> {
     Ok(())
 }
 
-pub fn calc_line_number(config: crate::config::Config) -> Result<LineStatistic> {
-    let mut lines = LineStatistic {
-        blank: 0,
-        comment: 0,
-        code: 0,
-        files: 0
-    };
+
+fn walk_dir(dirname: &String, ret: &mut HashMap<String, LineStatistic>) -> Result<()> {
+
+    for entry in fs::read_dir(dirname)? {
+        println!("[logging] {}", dirname);
+        let path = entry?.path();
+        let raw_path = path.to_str().ok_or(error::Error::NoneError(String::from("Path is empty")))?;
+        if path.is_dir() {
+            walk_dir(&raw_path.to_string(), ret)?;
+        } else {
+            let lan = get_language(&raw_path.to_string())?;
+            ret.entry(lan.clone()).or_insert(LineStatistic::new());
+            let mut lines = ret.get_mut(&lan).ok_or(error::Error::NoneError(String::from("Something wrong")))?;
+            read_file(&raw_path.to_string(), lines)?;
+            lines.files += 1;
+        }
+    }
+    Ok(())
+}
+
+pub fn calc_line_number(config: config::Config) -> Result<HashMap<String, LineStatistic>> {
+    let mut ret: HashMap<String, LineStatistic> = HashMap::new();
 
     let metadata = fs::metadata(config.filename.clone())?;
     let file_type = metadata.file_type();
 
     if file_type.is_dir() {
-        let file_count = walk_dir(&config.filename, &mut lines)?;
-        println!("Read {} files", file_count);
+        walk_dir(&config.filename, &mut ret)?;
     } else if file_type.is_file() {
-        read_file(&config.filename, &mut lines)?;
+        let lan = get_language(&config.filename)?;
+        ret.entry(lan.clone()).or_insert(LineStatistic::new());
+        let mut lines = ret.get_mut(&lan).ok_or(error::Error::NoneError(String::from("Something wrong")))?;
+        read_file(&config.filename, lines)?;
+        lines.files += 1;
     }
 
-    Ok(lines)
+    Ok(ret)
 }
-
-
